@@ -205,7 +205,7 @@ static int run(const struct dc_posix_env *env, struct dc_error *err, struct dc_a
     memset(client_message, '\0', sizeof(client_message));
     bool exitFlag = false;
 
-
+    // wait for server to give you an ID
     ssize_t count = dc_read(env, err, tcp_server_socket, server_message, sizeof(server_message));
     if (count <= 0) {
         printf("could not get ID\n");
@@ -293,23 +293,27 @@ static int run(const struct dc_posix_env *env, struct dc_error *err, struct dc_a
 }
 
 static void receive_udp_packet(const struct dc_posix_env *env, struct dc_error *err, client_info *clientInfo) {
-    uint8_t header[10] = {0};
+    uint8_t header[12] = {0};
+    ssize_t header_size = 12;
+    ssize_t entity_packet_size = 6;
+    ssize_t bullet_packet_size = 4;
     //printf("recv udp packet\n");
     ssize_t count;
-    count = recvfrom(clientInfo->udp_socket, header, 10, MSG_PEEK | MSG_WAITALL, NULL, NULL);
+    count = recvfrom(clientInfo->udp_socket, header, (size_t) header_size, MSG_PEEK | MSG_WAITALL, NULL, NULL);
     //printf("count %zd\n", count);
-    if (count < 10) {
+    if (count < 12) {
         //printf("packet not fully received\n");
         return;
     }
     uint64_t packet_no = (uint64_t) ((uint64_t) header[7] | (uint64_t) header[6] << 8 | (uint64_t) header[5] << 16 | (uint64_t) header[4] << 24 | (uint64_t) header[3] << 32 | (uint64_t) header[2] << 40 | (uint64_t) header[1] << 48 | (uint64_t) header[0] << 56);
     uint16_t num_entities = (uint16_t) (header[8] | (uint16_t) header[9] << 8);
-    ssize_t buffer_size = num_entities * 6 + 10;
+    uint16_t num_bullets = (uint16_t) (header[10] | (uint16_t) header[11] << 8);
+    ssize_t buffer_size = num_entities * entity_packet_size + num_bullets * bullet_packet_size +  header_size;
     uint8_t * buffer = calloc(1, (size_t) buffer_size);
     count = recvfrom(clientInfo->udp_socket, buffer, (size_t) buffer_size, MSG_WAITALL, NULL, NULL);
     if (count < buffer_size) {
         free(buffer);
-        printf("count not full %d < %d", count, buffer_size);
+        printf("count not full %zd < %zd", count, buffer_size);
         return;
     }
 
@@ -321,7 +325,9 @@ static void receive_udp_packet(const struct dc_posix_env *env, struct dc_error *
     }
 
     free_client_entities_list(&clientInfo->client_entities);
-    fill_entities_list(&clientInfo->client_entities, buffer + 10, num_entities);
+    fill_entities_list(&clientInfo->client_entities, buffer + header_size, num_entities);
+    free_bullet_list(&clientInfo->bulletList);
+    fill_bullet_list(&clientInfo->bulletList, buffer + header_size + 6 * num_entities, num_bullets);
     free(buffer);
     //update_player_position(clientInfo);
     draw_game(clientInfo);
@@ -364,9 +370,34 @@ static void free_client_entities_list(client_node **head) {
     *head = NULL;
 }
 
+static void fill_bullet_list(bullet_node **bullet_list, const uint8_t *entity_buffer, uint16_t num_bullets) {
+    size_t shift = 0;
+    for (uint16_t entity_no = 0; entity_no < num_bullets; ++entity_no) {
+        bullet * new_entity = calloc(1, sizeof (bullet));
+        new_entity->position_x = (uint16_t) (entity_buffer[0 + shift] | (uint16_t) entity_buffer[1 + shift] << 8);
+        new_entity->position_y = (uint16_t) (entity_buffer[2 + shift] | (uint16_t) entity_buffer[3 + shift] << 8);
+        shift += 4;
+        bullet_node * bulletNode = calloc(1, sizeof (bullet_node));
+        bulletNode->bullet = new_entity;
+        bulletNode->next = *bullet_list;
+        *bullet_list = bulletNode;
+    }
+}
+
+static void free_bullet_list(bullet_node **head) {
+    bullet_node * node = *head;
+    while (node) {
+        free(node->bullet);
+        bullet_node * temp = node->next;
+        free(node);
+        node = temp;
+    }
+    *head = NULL;
+}
+
 static void send_game_state(client_info *clientInfo, const int udp_socket) {
-    uint8_t packet[14];
-    memset(packet, 0, 14);
+    uint8_t packet[11];
+    memset(packet, 0, 11);
     uint64_t packet_no = ++clientInfo->last_packet_sent;
     // FROM STACK OVERFLOW: https://stackoverflow.com/a/35153234
     // USER https://stackoverflow.com/users/3482801/straw1239
@@ -378,17 +409,30 @@ static void send_game_state(client_info *clientInfo, const int udp_socket) {
 
 
     if(clientInfo->client_entity) {
-        packet[10] = clientInfo->client_entity->position_x & 0xFF;
-        packet[11] = clientInfo->client_entity->position_x >> 8;
-        packet[12] = clientInfo->client_entity->position_y & 0xFF;
-        packet[13] = clientInfo->client_entity->position_y >> 8;
+        clientInfo->clientInputState.move_down;
+        uint8_t packed_byte = 0;
+        packed_byte |= (clientInfo->clientInputState.move_up << 0);
+        packed_byte |= (clientInfo->clientInputState.move_down << 1);
+        packed_byte |= (clientInfo->clientInputState.move_left << 2);
+        packed_byte |= (clientInfo->clientInputState.move_right << 3);
+        packed_byte |= (clientInfo->clientInputState.shoot_up << 4);
+        packed_byte |= (clientInfo->clientInputState.shoot_down << 5);
+        packed_byte |= (clientInfo->clientInputState.shoot_left << 6);
+        packed_byte |= (clientInfo->clientInputState.shoot_right << 7);
+        packet[10] = packed_byte;
+        // old for sending position from client
+//        packet[10] = clientInfo->client_entity->position_x & 0xFF;
+//        packet[11] = clientInfo->client_entity->position_x >> 8;
+//        packet[12] = clientInfo->client_entity->position_y & 0xFF;
+//        packet[13] = clientInfo->client_entity->position_y >> 8;
     }
 
 
-    if(sendto(udp_socket, packet, 14, 0, (const struct sockaddr *) clientInfo->udp_address, clientInfo->udp_adr_len) < 0){
+    if(sendto(udp_socket, packet, 11, 0, (const struct sockaddr *) clientInfo->udp_address, clientInfo->udp_adr_len) < 0){
         printf("Unable to send message\n");
         exit(1);
     }
+    memset(&clientInfo->clientInputState, 0, sizeof(client_input_state));
 }
 
 static void error_reporter(const struct dc_error *err)
@@ -486,7 +530,7 @@ size_t get_time_difference(int future_hour, int future_minute, int current_hour,
 
 void * ncurses_thread(client_info *clientInfo) {
     printf("thread started\n");
-    char key = 0;
+    int key = 0;
 
 
     // THIS CODE IS MODIFIED FROM LIAM'S DEMO
@@ -497,31 +541,42 @@ void * ncurses_thread(client_info *clientInfo) {
     cbreak();             /* enables intant input */
     draw_game(clientInfo);
 
-    printw("\n");
+    //printw("\n");
     //mvaddch(1, 1, '0');
     //timeout(50);
-    while (!exit_flag && (key = (char)getch()) != EXIT_KEY) {
-        clear();
-        mvprintw(0, 20, "key: %c x: %d y: %d", key, clientInfo->client_entity->position_x, clientInfo->client_entity->position_y);
+    while (!exit_flag && (key = getch()) != EXIT_KEY) {
+        //clear();
+        //mvprintw(0, 20, "key: %c x: %d y: %d", key, clientInfo->client_entity->position_x, clientInfo->client_entity->position_y);
 
         switch (key) {
             case MOVE_UP:
-                //printf("move_up");
-                move_player(clientInfo->client_entity, -1, 0);
+                clientInfo->clientInputState.move_up = true;
                 break;
             case MOVE_LEFT:
-                move_player(clientInfo->client_entity, 0, -1);
+                clientInfo->clientInputState.move_left = true;
                 break;
             case MOVE_DOWN:
-                move_player(clientInfo->client_entity, 1, 0);
+                clientInfo->clientInputState.move_down = true;
                 break;
             case MOVE_RIGHT:
-                move_player(clientInfo->client_entity, 0, 1);
+                clientInfo->clientInputState.move_right = true;
+                break;
+            case KEY_UP:
+                clientInfo->clientInputState.shoot_up = true;
+                break;
+            case KEY_LEFT:
+                clientInfo->clientInputState.shoot_left = true;
+                break;
+            case KEY_DOWN:
+                clientInfo->clientInputState.shoot_down = true;
+                break;
+            case KEY_RIGHT:
+                clientInfo->clientInputState.shoot_right = true;
                 break;
             default:
                 break;
         }
-        draw_game(clientInfo);
+        //draw_game(clientInfo);
 
 
 
@@ -565,8 +620,18 @@ void * ncurses_thread(client_info *clientInfo) {
 
 void draw_game(client_info *clientInfo) {
     clear();
+    // draw some sort of map
 
-    // draw the entities if there are any
+    // draw the bullets
+    bullet_node * bulletNode;
+    bulletNode = clientInfo->bulletList;
+
+    while (bulletNode) {
+        mvaddch(bulletNode->bullet->position_x, bulletNode->bullet->position_y, '*');
+        bulletNode = bulletNode->next;
+    }
+
+    // draw the client entities if there are any
     if (clientInfo->client_entities) {
         client_node * clientNode = clientInfo->client_entities;
 

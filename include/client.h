@@ -89,5 +89,6 @@ void * ncurses_thread(client_info *clientInfo);
 void move_player(client *client_entity, int direction_x, int direction_y);
 
 void draw_game(client_info *clientInfo);
-
+static void free_bullet_list(bullet_node **head);
+static void fill_bullet_list(bullet_node **bullet_list, const uint8_t *entity_buffer, uint16_t num_bullets);
 #endif //STIRLING_GAME_DEMO_CLIENT_H

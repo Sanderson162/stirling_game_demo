@@ -81,5 +81,5 @@ static void send_game_state(server_info *serverInfo, int udp_socket);
 static connection_node * get_active_clients(server_info *serverInfo, uint16_t *num_entities);
 
 static volatile sig_atomic_t exit_flag;
-
+bool validate_user_position(uint16_t x, uint16_t y);
 #endif //STIRLING_GAME_DEMO_SERVER_H
