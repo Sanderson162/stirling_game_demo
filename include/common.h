@@ -22,20 +22,46 @@
 #include <netinet/in.h>
 #include <stdbool.h>
 
-#define DEFAULT_TCP_PORT "7524"
+#define DEFAULT_TCP_PORT "7521"
 #define DEFAULT_UDP_PORT "4981"
 
-#define DEFAULT_TCP_PORT_ADMIN_SERVER 8524
+#define DEFAULT_TCP_PORT_ADMIN_SERVER 8521
 
 #define DEFAULT_HOSTNAME "127.0.0.1"
 #define MAX_TCP_CLIENTS 100
 #define MAX_CLIENTS 1000
+typedef struct {
+    bool move_up;
+    bool move_down;
+    bool move_left;
+    bool move_right;
+
+    bool shoot_up;
+    bool shoot_down;
+    bool shoot_left;
+    bool shoot_right;
+} client_input_state;
 
 typedef struct {
     uint16_t client_id;
     uint16_t position_x;
     uint16_t position_y;
+    client_input_state inputState;
 } client;
+
+typedef struct {
+    uint16_t shooters_id;
+    uint16_t position_x;
+    uint16_t position_y;
+    short direction_x;
+    short direction_y;
+} bullet;
+
+typedef struct bullet_node {
+    bullet * bullet;
+    struct bullet_node * next;
+} bullet_node;
+
 
 typedef struct {
     uint16_t client_id;
@@ -58,7 +84,7 @@ typedef struct client_node {
 } client_node;
 
 typedef struct {
-
+    bullet_node * bulletList;
     connection * connections[MAX_CLIENTS];
     uint64_t last_packet_no;
 } server_info;
@@ -74,6 +100,8 @@ typedef struct {
     socklen_t udp_adr_len;
     bool has_client_entity;
     client * client_entity;
+    client_input_state clientInputState;
+    bullet_node * bulletList;
 } client_info;
 
 

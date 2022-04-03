@@ -117,6 +117,10 @@ static struct dc_application_settings *create_settings(const struct dc_posix_env
 }
 
 
+static void process_game_state(server_info *serverInfo);
+
+static uint16_t count_bullets(bullet_node *bulletNode);
+
 static int destroy_settings(const struct dc_posix_env *env,
                             __attribute__((unused)) struct dc_error *err,
                             struct dc_application_settings **psettings)
@@ -198,6 +202,7 @@ static int run(const struct dc_posix_env *env, struct dc_error *err, struct dc_a
             timeout.tv_usec = tick_rate.tv_usec;
             //printf("putting out packet %lu\n", packet_no);
             packet_no++;
+            process_game_state(serverInfo);
             send_game_state(serverInfo, udp_server_sd);
         }
 
@@ -305,7 +310,143 @@ static int run(const struct dc_posix_env *env, struct dc_error *err, struct dc_a
     return EXIT_SUCCESS;
 }
 
+static void process_game_state(server_info *serverInfo) {
 
+
+    //update player locations
+    for (uint16_t client_id = 0; client_id < MAX_CLIENTS; ++client_id) {
+        if (serverInfo->connections[client_id] && serverInfo->connections[client_id]->has_client_entity) {
+            client * current_client;
+            current_client = serverInfo->connections[client_id]->client_entity;
+            uint16_t new_x = current_client->position_x;
+            uint16_t new_y = current_client->position_y;
+            // move player based off input state;
+            if (current_client->inputState.move_up) {
+                new_x--;
+            }
+            if (current_client->inputState.move_down) {
+                new_x++;
+            }
+            if (current_client->inputState.move_left) {
+                new_y--;
+            }
+            if (current_client->inputState.move_right) {
+                new_y++;
+            }
+            //validate new position
+            if (validate_user_position(new_x, new_y)) {
+                current_client->position_x = new_x;
+                current_client->position_y = new_y;
+            } else if (validate_user_position(new_x, current_client->position_y)) {
+                current_client->position_x = new_x;
+            } else if (validate_user_position(current_client->position_x, new_y)) {
+                current_client->position_y = new_y;
+            } else if (!validate_user_position(current_client->position_x, current_client->position_y)) {
+                current_client->position_x = 0;
+                current_client->position_y = 0;
+            }
+            if (current_client->inputState.shoot_up || current_client->inputState.shoot_down || current_client->inputState.shoot_left || current_client->inputState.shoot_right) {
+                // player will shoot a bullet this tick
+                bullet * new_bullet;
+                new_bullet = calloc(1, sizeof(bullet));
+                new_bullet->shooters_id = client_id;
+                new_bullet->position_x = current_client->position_x;
+                new_bullet->position_y = current_client->position_y;
+                if (current_client->inputState.shoot_up) {
+                    new_bullet->direction_x--;
+                }
+                if (current_client->inputState.shoot_down) {
+                    new_bullet->direction_x++;
+                }
+                if (current_client->inputState.shoot_left) {
+                    new_bullet->direction_y--;
+                }
+                if (current_client->inputState.shoot_right) {
+                    new_bullet->direction_y++;
+                }
+                if (new_bullet->direction_x == 0 && new_bullet->direction_y == 0) {
+                    free(new_bullet);
+                } else {
+                    bullet_node * new_bullet_node;
+                    new_bullet_node = calloc(1, sizeof(bullet));
+                    new_bullet_node->bullet = new_bullet;
+                    new_bullet_node->next = serverInfo->bulletList;
+                    serverInfo->bulletList = new_bullet_node;
+                }
+            }
+
+
+            memset(&current_client->inputState, 0, sizeof(client_input_state));
+        }
+    }
+
+    //update bullet position
+    bullet_node * bulletNode_prev = NULL;
+    bullet_node * bulletNode = serverInfo->bulletList;
+
+    while (bulletNode) {
+        bulletNode->bullet->position_x += bulletNode->bullet->direction_x;
+        bulletNode->bullet->position_y += bulletNode->bullet->direction_y;
+        if (!validate_user_position(bulletNode->bullet->position_x, bulletNode->bullet->position_y)) {
+            if (bulletNode_prev == NULL) {
+                serverInfo->bulletList = bulletNode->next;
+            } else {
+                bulletNode_prev->next = bulletNode->next;
+            }
+            free(bulletNode->bullet);
+            bullet_node * temp_node = bulletNode;
+            bulletNode = bulletNode->next;
+            free(temp_node);
+        } else {
+            bulletNode_prev = bulletNode;
+            bulletNode = bulletNode->next;
+        }
+
+    }
+
+
+    // check if any bullets collided with players
+    for (uint16_t client_id = 0; client_id < MAX_CLIENTS; ++client_id) {
+        if (serverInfo->connections[client_id] && serverInfo->connections[client_id]->has_client_entity) {
+            client *current_client;
+            current_client = serverInfo->connections[client_id]->client_entity;
+            uint16_t x = current_client->position_x;
+            uint16_t y = current_client->position_y;
+            bulletNode_prev = NULL;
+            bulletNode = serverInfo->bulletList;
+            while (bulletNode) {
+                if (bulletNode->bullet->position_x == x && bulletNode->bullet->position_y == y) {
+                    if (bulletNode->bullet->shooters_id != client_id) {
+                        current_client->position_x = 0;
+                        current_client->position_y = 0;
+                    }
+                    if (bulletNode_prev == NULL) {
+                        serverInfo->bulletList = bulletNode->next;
+                    } else {
+                        bulletNode_prev->next = bulletNode->next;
+                    }
+                    free(bulletNode->bullet);
+                    bullet_node * temp_node = bulletNode;
+                    bulletNode = bulletNode->next;
+                    free(temp_node);
+                } else {
+                    bulletNode_prev = bulletNode;
+                    bulletNode = bulletNode->next;
+                }
+
+            }
+        }
+    }
+
+}
+
+
+bool validate_user_position(uint16_t x, uint16_t y) {
+    if (x > 50 || y > 50) {
+        return false;
+    }
+    return true;
+}
 
 static void send_game_state(server_info *serverInfo, int udp_socket) {
     uint64_t packet_no = ++serverInfo->last_packet_no;
@@ -315,7 +456,10 @@ static void send_game_state(server_info *serverInfo, int udp_socket) {
     uint16_t num_entities;
     connection_node * clients_with_entities = get_active_clients(serverInfo, &num_entities);
 
-    uint8_t * header = calloc(10, 1);
+    uint16_t num_bullets;
+    num_bullets = count_bullets(serverInfo->bulletList);
+
+    uint8_t * header = calloc(12, 1);
 
 
     // FROM STACK OVERFLOW: https://stackoverflow.com/a/35153234
@@ -326,6 +470,9 @@ static void send_game_state(server_info *serverInfo, int udp_socket) {
 
     header[8] = num_entities & 0xFF;
     header[9] = num_entities >> 8;
+
+    header[10] = num_bullets & 0xFF;
+    header[11] = num_bullets >> 8;
 
     uint8_t * entity_list = calloc(num_entities, 6);
 
@@ -346,12 +493,29 @@ static void send_game_state(server_info *serverInfo, int udp_socket) {
 
         node = node->next;
     }
-    size_t buffer_size = entities_added * 6 + 10;
+
+
+    uint8_t * bullet_list = calloc(num_bullets, 4);
+    uint16_t bullets_added = 0;
+    shift = 0;
+    bullet_node * bulletNode = serverInfo->bulletList;
+    while (bulletNode) {
+        *(bullet_list + shift++) = bulletNode->bullet->position_x & 0xFF;
+        *(bullet_list + shift++) = bulletNode->bullet->position_x >> 8;
+        *(bullet_list + shift++) = bulletNode->bullet->position_y & 0xFF;
+        *(bullet_list + shift++) = bulletNode->bullet->position_y >> 8;
+        bullets_added++;
+        bulletNode = bulletNode->next;
+    }
+
+    size_t buffer_size = entities_added * 6 + bullets_added * 4 + 12;
     uint8_t * buffer = calloc(buffer_size, 1);
-    memcpy(buffer, header, 10);
-    memcpy((buffer + 10), entity_list, entities_added * 6);
+    memcpy(buffer, header, 12);
+    memcpy((buffer + 12), entity_list, entities_added * 6);
+    memcpy((buffer + 12 + entities_added * 6), bullet_list, bullets_added * 4);
     free(header);
     free(entity_list);
+    free(bullet_list);
 
     node = clients_with_entities;
     while (node) {
@@ -364,7 +528,16 @@ static void send_game_state(server_info *serverInfo, int udp_socket) {
         node = node->next;
     }
 
+    free(buffer);
+}
 
+static uint16_t count_bullets(bullet_node *bulletNode) {
+    uint16_t count = 0;
+    while (bulletNode){
+        count++;
+        bulletNode = bulletNode->next;
+    }
+    return count;
 }
 
 static connection_node * get_active_clients(server_info *serverInfo, uint16_t *num_entities) {
@@ -527,22 +700,33 @@ receive_tcp_packet(const struct dc_posix_env *env, struct dc_error *err, server_
 
 static void
 receive_udp_packet(const struct dc_posix_env *env, struct dc_error *err, server_info *serverInfo, int udp_server_sd) {
-    uint8_t client_message[14];
-    memset(client_message, '\0', 14);
+    uint8_t client_message[11];
+    size_t client_message_len = 11;
+    memset(client_message, '\0', client_message_len);
     struct sockaddr_in udp_client_addr;
     socklen_t client_struct_length = sizeof(udp_client_addr);
     ssize_t count;
-    count = dc_recvfrom(env, err, udp_server_sd, client_message, 14, 0, (struct sockaddr*) &udp_client_addr, &client_struct_length);
+    count = dc_recvfrom(env, err, udp_server_sd, client_message, client_message_len, 0, (struct sockaddr*) &udp_client_addr, &client_struct_length);
     //printf("count %zd\n", count);
-    if (count < 14) {
+    if (count < client_message_len) {
         printf("packet not fully received\n");
         return;
     }
     //client_message[count] = 0;
     uint64_t packet_no = (uint64_t) ((uint64_t) client_message[7] | (uint64_t) client_message[6] << 8 | (uint64_t) client_message[5] << 16 | (uint64_t) client_message[4] << 24 | (uint64_t) client_message[3] << 32 | (uint64_t) client_message[2] << 40 | (uint64_t) client_message[1] << 48 | (uint64_t) client_message[0] << 56);
     uint16_t client_id = (uint16_t) (client_message[8] | (uint16_t) client_message[9] << 8);
-    uint16_t position_x = (uint16_t) (client_message[10] | (uint16_t) client_message[11] << 8);
-    uint16_t position_y = (uint16_t) (client_message[12] | (uint16_t) client_message[13] << 8);
+    //uint16_t position_x = (uint16_t) (client_message[10] | (uint16_t) client_message[11] << 8);
+    //uint16_t position_y = (uint16_t) (client_message[12] | (uint16_t) client_message[13] << 8);
+
+    client_input_state packet_inputs;
+    packet_inputs.move_up = client_message[10] & 0x1;
+    packet_inputs.move_down = client_message[10] & 0x2;
+    packet_inputs.move_left = client_message[10] & 0x4;
+    packet_inputs.move_right = client_message[10] & 0x8;
+    packet_inputs.shoot_up = client_message[10] & 0x10;
+    packet_inputs.shoot_down = client_message[10] & 0x20;
+    packet_inputs.shoot_left = client_message[10] & 0x40;
+    packet_inputs.shoot_right = client_message[10] & 0x80;
 
     //printf("client packet with no %lu id %d x %d y %d\n", packet_no, client_id, position_x, position_y);
     connection * client_conn = serverInfo->connections[client_id];
@@ -570,8 +754,10 @@ receive_udp_packet(const struct dc_posix_env *env, struct dc_error *err, server_
         client_conn->has_client_entity = true;
         client_conn->client_entity = calloc(1, sizeof(client));
     }
-    client_conn->client_entity->position_x = position_x;
-    client_conn->client_entity->position_y = position_y;
+    memcpy(&client_conn->client_entity->inputState, &packet_inputs, sizeof(client_input_state));
+
+//    client_conn->client_entity->position_x = position_x;
+//    client_conn->client_entity->position_y = position_y;
 
 
 //    printf("Received udp message from IP: %s and port: %i\n", inet_ntoa((udp_client_addr).sin_addr), ntohs((udp_client_addr).sin_port));
