@@ -216,6 +216,8 @@ static int run(const struct dc_posix_env *env, struct dc_error *err, struct dc_a
     uint16_t client_id = (uint16_t) (server_message[0] | (uint16_t) server_message[1] << 8);
     printf("client id %hu\n", client_id);
 
+
+
     const uint16_t delay = dc_setting_uint16_get(env, app_settings->packet_delay);
     // 100 ticks/s
     const struct timeval tick_rate = {0, 10000};
@@ -395,7 +397,7 @@ static void free_bullet_list(bullet_node **head) {
     *head = NULL;
 }
 
-static void send_game_state(client_info *clientInfo, const int udp_socket) {
+static void send_game_state(client_info *clientInfo, int udp_socket) {
     uint8_t packet[11];
     memset(packet, 0, 11);
     uint64_t packet_no = ++clientInfo->last_packet_sent;
@@ -447,74 +449,6 @@ static void trace_reporter(__attribute__((unused)) const struct dc_posix_env *en
                            size_t line_number)
 {
     fprintf(stdout, "TRACE: %s : %s : @ %zu\n", file_name, function_name, line_number);
-}
-
-int connectToServer(struct dc_error *err, const struct dc_posix_env *env, const char *host_name, in_port_t port) {
-    struct addrinfo hints;
-    struct addrinfo *result;
-
-    dc_memset(env, &hints, 0, sizeof(hints));
-    hints.ai_family =  AF_INET; // AF_INET6;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_CANONNAME;
-    dc_getaddrinfo(env, err, host_name, NULL, &hints, &result);
-
-    if(dc_error_has_no_error(err))
-    {
-        int socket_fd;
-
-        socket_fd = dc_socket(env, err, result->ai_family, result->ai_socktype, result->ai_protocol);
-
-        if(dc_error_has_no_error(err))
-        {
-            struct sockaddr *sockaddr;
-            in_port_t converted_port;
-            socklen_t sockaddr_size;
-
-            sockaddr = result->ai_addr;
-            converted_port = htons(port);
-
-            if(sockaddr->sa_family == AF_INET)
-            {
-                struct sockaddr_in *addr_in;
-
-                addr_in = (struct sockaddr_in *)sockaddr;
-                addr_in->sin_port = converted_port;
-                sockaddr_size = sizeof(struct sockaddr_in);
-            }
-            else
-            {
-                if(sockaddr->sa_family == AF_INET6)
-                {
-                    struct sockaddr_in6 *addr_in;
-
-                    addr_in = (struct sockaddr_in6 *)sockaddr;
-                    addr_in->sin6_port = converted_port;
-                    sockaddr_size = sizeof(struct sockaddr_in6);
-                }
-                else
-                {
-                    DC_ERROR_RAISE_USER(err, "sockaddr->sa_family is invalid", -1);
-                    sockaddr_size = 0;
-                }
-            }
-
-            if(dc_error_has_no_error(err))
-            {
-                dc_connect(env, err, socket_fd, sockaddr, sockaddr_size);
-
-                if(dc_error_has_no_error(err))
-                {
-                    return socket_fd;
-                }
-            }
-        }
-    }
-    if (dc_error_has_error(err)) {
-        error_reporter(err);
-        exit(1);
-    }
-    return -1;
 }
 
 

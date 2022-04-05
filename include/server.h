@@ -11,22 +11,26 @@
 #include <dc_application/options.h>
 #include <dc_posix/dc_stdlib.h>
 #include <dc_posix/dc_string.h>
+#include <dc_posix/dc_signal.h>
+#include <dc_posix/sys/dc_socket.h>
+#include <dc_posix/dc_unistd.h>
+
+#include <arpa/inet.h>
+#include <errno.h>
 #include <getopt.h>
+#include <ncurses.h>
 #include <stdio.h>
 #include <stdlib.h>
-//includes from tutorial
-#include <sys/socket.h>
-#include <arpa/inet.h>
 #include <string.h>
-#include <unistd.h>
+
 #include <sys/select.h>
-#include <fcntl.h>
-#include <dc_posix/dc_netdb.h>
-#include <dc_posix/sys/dc_socket.h>
-#include <dc_posix/dc_signal.h>
-#include <dc_posix/dc_unistd.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/un.h>
 #include <time.h>
-#include <dc_posix/dc_fcntl.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #include "default_config.h"
 #include <common.h>

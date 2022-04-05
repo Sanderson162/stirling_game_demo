@@ -17,6 +17,7 @@ set(HEADER_LIST
         "${stirling_game_demo_SOURCE_DIR}/include/server.h"
         "${stirling_game_demo_SOURCE_DIR}/include/client.h"
         "${stirling_game_demo_SOURCE_DIR}/include/admin_client.h"
+        "${stirling_game_demo_SOURCE_DIR}/include/chat_server.h"
         )
 
 set(COMMON_SOURCE_LIST
@@ -26,6 +27,7 @@ set(COMMON_SOURCE_LIST
 set(SERVER_SOURCE_LIST
         "${stirling_game_demo_SOURCE_DIR}/src/network_util.c"
         "${stirling_game_demo_SOURCE_DIR}/src/admin_integration.c"
+        "${stirling_game_demo_SOURCE_DIR}/src/chat_server.c"
         )
 
 set(CLIENT_SOURCE_LIST
