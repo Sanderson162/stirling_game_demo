@@ -12,28 +12,29 @@
 #include <dc_application/options.h>
 #include <dc_posix/dc_stdlib.h>
 #include <dc_posix/dc_string.h>
-#include <getopt.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <dc_posix/dc_signal.h>
 #include <dc_posix/sys/dc_socket.h>
-
 #include <dc_posix/dc_unistd.h>
 
-//includes from tutorial
-//#include <sys/socket.h>
-#include <ncurses.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <getopt.h>
+#include <ncurses.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <netdb.h>
-#include <dc_posix/dc_netdb.h>
-#include <dc_posix/dc_signal.h>
-#include <common.h>
-#include <time.h>
-#include <sys/select.h>
-#include <pthread.h>
-#include <sys/time.h>
 
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <sys/un.h>
+#include <time.h>
+#include <pthread.h>
+#include <unistd.h>
+
+//local imports
+#include <common.h>
 #include "network_util.h"
 #include "types.h"
 #include "default_config.h"
@@ -55,7 +56,6 @@ struct application_settings
 
 void signal_handler(__attribute__ ((unused)) int signnum);
 
-void signal_handler(__attribute__ ((unused)) int signnum);
 static volatile sig_atomic_t exit_flag;
 
 static struct dc_application_settings *create_settings(const struct dc_posix_env *env, struct dc_error *err);
@@ -69,12 +69,10 @@ static void trace_reporter(const struct dc_posix_env *env,
                            const char *function_name,
                            size_t line_number);
 
-int connectToServer(struct dc_error *err, const struct dc_posix_env *env, const char *host_name, in_port_t port);
-
 
 size_t get_time_difference(int future_hour, int future_minute, int current_hour, int current_min, int current_seconds);
 
-static void send_game_state(client_info *clientInfo, const int udp_socket);
+static void send_game_state(client_info *clientInfo, int udp_socket);
 
 static void receive_udp_packet(const struct dc_posix_env *env, struct dc_error *err, client_info *clientInfo);
 
